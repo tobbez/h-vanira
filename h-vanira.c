@@ -1,5 +1,29 @@
 /*
- * Copyright © 2009  Sebastian Thorarensen
+ * Copyright © 2009, Sebastian Thorarensen <indigo176@blinkenshell.org>,
+ *		     Torbjörn Lönnemark <tobbez@ryara.net>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the <organization> nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE H-Vanira TEAM ''AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE H-Vanira TEAM BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include <stdlib.h>
@@ -19,10 +43,10 @@
 /*#include <arpa/inet.h>*/
 
 #define MASTER_OPERATOR "indigo176@titan.blinkenshell.org"
-#define VERSION "H-Vanira (20091013) by InDigo176"
+#define VERSION "H-Vanira (20091014) by InDigo176 and tobbez"
 
 #define RECONNECTION_DELAY 30
-#define DISCONNECTION_TIMEOUT 2
+#define QUIT_TIMEOUT 2
 
 
 void read_opers(void);
@@ -36,7 +60,7 @@ int strscmp(const char *, const char *);
 
 void irc_command_ping(char *);
 void irc_command_join(char *);
-void irc_command_privmsg(char *);
+void irc_command_privmsg(char *, char *);
 void irc_command_kick(char *);
 void irc_join(void);
 
@@ -183,7 +207,7 @@ void handle_signal(int sig) {
 
 		FD_ZERO(&sockset);
 		FD_SET(sockfd, &sockset);
-		tv.tv_sec = DISCONNECTION_TIMEOUT;
+		tv.tv_sec = QUIT_TIMEOUT;
 		tv.tv_usec = 0;
 
 		select(sockfd+1, &sockset, NULL, NULL, &tv);
@@ -316,7 +340,7 @@ void read_command(char *msg) {
 
 		params = strscmp(cmd, "PRIVMSG");
 		if (params > 0) {
-			irc_command_privmsg(cmd+params);
+			irc_command_privmsg(msg, cmd+params);
 		}
 		return;
 
@@ -344,58 +368,63 @@ int strscmp(const char *s1, const char *s2) {
 }
 
 void irc_command_ping(char *params) {
-        fprintf(sockstream, "PONG %s\r\n", params);
-        fflush(sockstream);
+	fprintf(sockstream, "PONG %s\r\n", params);
+	 fflush(sockstream);
 }
 
 /*
  * ops users in opers list on join
  */
 void irc_command_join(char *prefix) {
-        char *mask;
-        struct oper *o;
-        size_t len;
+	char *mask;
+	struct oper *o;
+	size_t len;
 
-        /* skip colon */
-        prefix++;
+	/* skip colon */
+	prefix++;
 
-        mask = strchr(prefix, '!');
+	mask = strchr(prefix, '!');
 	if (!mask)
 		return;
-        mask[0] = '\0';
+	mask[0] = '\0';
 
-        mask++;
+	mask++;
 
-        len = strlen(mask);
-        if (len > 128)
-                return; /* mask to long for us */
+	len = strlen(mask);
+	if (len > 128)
+		return; /* mask to long for us */
 
-        for (o=&opers; o; o=o->next) {
-                if (memcmp(mask, o->mask, len) == 0) {
-                        fprintf(sockstream, "MODE %s +o %s\r\n", irc_channel,
-                                        prefix);
-                        fflush(sockstream);
-                        return;
-                }
-        }
+	for (o=&opers; o; o=o->next) {
+		if (memcmp(mask, o->mask, len) == 0) {
+			fprintf(sockstream, "MODE %s +o %s\r\n", irc_channel,
+					prefix);
+			fflush(sockstream);
+			return;
+		}
+	}
 }
 
-void irc_command_privmsg(char *params) {
-	char about[128+8+1]; /* nick: 128, command: 8, nullbyte: 1 */
-	char *msg = strchr(params, ' ');
+void irc_command_privmsg(char *prefix, char *params) {
+	char *msg;
+	char *n;
+
+	/* terminate nick string */
+	n = strchr(prefix, '!');
+	if (!n)
+		return;
+	n[0] = '\0';
+
+	msg = strchr(params, ' ');
 	if (!msg)
 		return;
 	msg[0] = '\0';
-
 	msg++;
 
-	if (strcmp(params, irc_channel) != 0)
+	if (strcmp(params, irc_nick) != 0)
 		return;
 
-	sprintf(about, ":%s: about", irc_nick);
-
-	if (strcmp(msg, about) == 0) {
-		fprintf(sockstream, "PRIVMSG %s :%s\r\n", irc_channel,
+	if (strcmp(msg, ":\001VERSION\001") == 0) {
+		fprintf(sockstream, "NOTICE %s :\001%s\001\r\n", prefix,
 				VERSION);
 		fflush(sockstream);
 	}
