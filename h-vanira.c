@@ -60,8 +60,12 @@ int main(int argc, char *argv[]) {
 	char *port;
 	char *buf;
 
-	if (argc < 4 || argc > 5)
-		error(2, 0, "Wrong number of arguments");
+	if (argc < 4 || argc > 5) {
+		error(0, 0, "Wrong number of arguments.");
+		fprintf(stderr, "Usage: %s <nick> <channel> <server> [port]\n",
+			argv[0]);
+		exit(2);
+	}
 
 	irc_nick = argv[ci++];
 	irc_channel = argv[ci++];
