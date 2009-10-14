@@ -408,7 +408,8 @@ void irc_command_privmsg(char *prefix, char *params) {
 	char *msg;
 	char *n;
 
-	/* terminate nick string */
+	/* make nick string */
+	prefix++;
 	n = strchr(prefix, '!');
 	if (!n)
 		return;
@@ -424,8 +425,8 @@ void irc_command_privmsg(char *prefix, char *params) {
 		return;
 
 	if (strcmp(msg, ":\001VERSION\001") == 0) {
-		fprintf(sockstream, "NOTICE %s :\001%s\001\r\n", prefix,
-				VERSION);
+		fprintf(sockstream, "NOTICE %s :\001VERSION %s\001\r\n",
+				prefix, VERSION);
 		fflush(sockstream);
 	}
 }
