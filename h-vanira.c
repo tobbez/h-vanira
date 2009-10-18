@@ -300,7 +300,7 @@ void handle_forever(char *buf) {
 void read_command(char *msg) {
 	char *cmd = msg;
 
-	/*printf(msg);
+	/*printf("%s", msg);
 	printf("\n");*/
 
 	/* strip prefix from cmd */
