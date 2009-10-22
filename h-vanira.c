@@ -42,7 +42,8 @@
 /*#include <netinet/in.h>*/
 /*#include <arpa/inet.h>*/
 
-#define VERSION "H-Vanira (20091014) by InDigo176 and tobbez"
+/* #define VERSION "H-Vanira (20091014) by InDigo176 and tobbez" */
+#include "version.h"
 
 #define RECONNECTION_DELAY 30
 #define QUIT_TIMEOUT 2
