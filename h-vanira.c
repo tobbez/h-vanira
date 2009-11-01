@@ -87,7 +87,8 @@ char *outbuf;
 int sockfd;
 FILE *sockstream;
 
-int main(int argc, char *argv[]) {
+/* int main(int argc, char *argv[]) { */
+int main(void) {
 	char *buf;
 
 	read_conf(&cfg);
@@ -324,7 +325,7 @@ void handle_forever(char *buf) {
 			":H-Vanira the Bot\r\n");
 	fflush(sockstream);
 
-	while ((rsize += read(sockfd, buf+offset, 512-offset))) {
+	while ((rsize += read(sockfd, buf+offset, 512-offset)) > 0) {
 		while (offset < (size_t)rsize) {
 			if (!(buf[offset++] == '\r' && buf[offset] == '\n')) 
 				continue; /* search for \r\n */
@@ -353,12 +354,16 @@ void handle_forever(char *buf) {
 		if (offset == 512) 
 			offset = 0;
 	}
+
+	if (rsize == -1)
+		perror("read");
 }
 
 void read_command(char *msg) {
 	char *cmd = msg;
 
-	printf("%s\n", msg);
+	/* For debugging: */
+	/* printf("%s\n", msg); */
 
 	/* strip prefix from cmd */
 	if (cmd[0] == ':') {
