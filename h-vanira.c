@@ -114,7 +114,6 @@ int main(int argc, char *argv[]) {
 		if (!sockstream) {
 			perror("fdopen");
 		} else {
-			printf("Reloaded\n");
 			goto skip_connect;
 		}
 	}
