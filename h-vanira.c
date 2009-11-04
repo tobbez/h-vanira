@@ -360,7 +360,7 @@ void handle_forever(char *buf) {
 	while ((rsize += read(sockfd, buf+offset, 512-offset))) {
 		if (rsize < 0) {
 			if (errno == EINTR) {
-				if (pending_reload) {
+				if (pending_reload && offset == 0) {
 					reload();
 					pending_reload = false;
 				}
