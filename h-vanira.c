@@ -301,7 +301,7 @@ void handle_signal(int sig) {
 void reload(void) {
 	char arg[8]; /* shouldn't overflow on an int */
 
-	if (sockfd <= 32767) { /* but make sure it's max 16-bit anyway */
+	if (sockfd > 32767) { /* but make sure it's max 16-bit anyway */
 		error(0, 0, "Integer overflow");
 		return;
 	}
