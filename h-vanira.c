@@ -115,14 +115,14 @@ int main(int argc, char *argv[]) {
 			perror("fdopen");
 		} else {
 			printf("Reloaded\n");
-			goto skip_init;
+			goto skip_connect;
 		}
 	}
 
 	for (;;) {
 		while (!irc_connect(cfg.server, cfg.port))
 			sleep(RECONNECTION_DELAY);
-skip_init:	handle_forever(buf);
+skip_connect:	handle_forever(buf);
 		printf("Disconnected!\n");
 	}
 
