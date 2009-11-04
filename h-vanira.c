@@ -52,6 +52,7 @@
 void read_opers(void);
 void install_signals(void);
 void handle_signal(int);
+void reload(void);
 bool irc_connect(char *, char *);
 void handle_forever(char *);
 void read_command(char *);
@@ -62,6 +63,7 @@ void irc_command_ping(char *);
 void irc_command_join(char *);
 void irc_command_privmsg(char *, char *);
 void irc_command_kick(char *);
+void irc_register(void);
 void irc_join(void);
 
 struct conf {
@@ -75,21 +77,24 @@ struct conf {
 void read_conf(struct conf *);
 
 struct oper {
-	char mask[128];
+	char mask[512];
 	struct oper *next;
 };
 
 struct conf cfg;
-
 struct oper opers;
+
+char *path;
+bool pending_reload = false;
 
 char *outbuf;
 int sockfd;
 FILE *sockstream;
 
-/* int main(int argc, char *argv[]) { */
-int main(void) {
+int main(int argc, char *argv[]) {
 	char *buf;
+
+	path = argv[0];
 
 	read_conf(&cfg);
 	read_opers();
@@ -100,10 +105,24 @@ int main(void) {
 
 	install_signals();
 
+	if (argc > 1) {
+		sockfd = atoi(argv[1]);
+		if (sockfd < 1) { /* TODO add fail safe check */
+			error(EXIT_FAILURE, 0, "Bad reload socket");
+		}
+		sockstream = fdopen(sockfd, "w");
+		if (!sockstream) {
+			perror("fdopen");
+		} else {
+			printf("Reloaded\n");
+			goto skip_init;
+		}
+	}
+
 	for (;;) {
 		while (!irc_connect(cfg.server, cfg.port))
 			sleep(RECONNECTION_DELAY);
-		handle_forever(buf);
+skip_init:	handle_forever(buf);
 		printf("Disconnected!\n");
 	}
 
@@ -207,7 +226,7 @@ void read_opers(void) {
 		current = current->next;
 
 		len = ftell(maskf);
-		fgets(current->mask, 128, maskf);
+		fgets(current->mask, 512, maskf);
 		len = ftell(maskf) - len - 1;
 		current->mask[len] = '\0'; /* remove \n */
 	}
@@ -218,7 +237,7 @@ void read_opers(void) {
 }
 
 void install_signals(void) {
-	int signals[] = {SIGHUP, SIGINT, SIGSEGV, SIGTERM};
+	int signals[] = {SIGHUP, SIGINT, SIGSEGV, SIGTERM, SIGUSR1};
 	size_t len = sizeof signals / sizeof (int);
 	struct sigaction action;
 	size_t i;
@@ -253,6 +272,10 @@ void handle_signal(int sig) {
 		case SIGTERM:
 			quitmsg = "Caught termination signal";
 			break;
+		case SIGUSR1:
+			/* will reload when all pending IRC commands 
+			 * have been parsed */
+			pending_reload = true;
 		default:
 			return;
 	}
@@ -273,6 +296,20 @@ void handle_signal(int sig) {
 	}
 
 	exit(exitval);
+}
+
+void reload(void) {
+	char arg[8]; /* shouldn't overflow on an int */
+
+	if (sockfd <= 32767) { /* but make sure it's max 16-bit anyway */
+		error(0, 0, "Integer overflow");
+		return;
+	}
+
+	sprintf(arg, "%i", sockfd);
+	if (execl(path, "h-vanira", arg, (char *)NULL) < 0) {
+		perror("execl");
+	}
 }
 
 bool irc_connect(char *hostname, char *port) {
@@ -310,22 +347,34 @@ bool irc_connect(char *hostname, char *port) {
 		return false;
 	}
 
+	irc_register();
+
 	freeaddrinfo(ai);
 	return true;
-
 }
 
 void handle_forever(char *buf) {
 	size_t offset = 0;
 	ssize_t rsize = 0;
 
-	/* register */
-	fprintf(sockstream, "NICK %s\r\n", cfg.nick);
-	fprintf(sockstream, "USER H-Vanira localhost localhost "
-			":H-Vanira the Bot\r\n");
-	fflush(sockstream);
+	while ((rsize += read(sockfd, buf+offset, 512-offset))) {
+		if (rsize < 0) {
+			if (errno == EINTR) {
+				if (pending_reload) {
+					reload();
+					pending_reload = false;
+				}
+				rsize = 0;
+				continue;
+			} else {
+				perror("read");
+				fclose(sockstream);
+				close(sockfd);
+				return; /* reconnect */
+			}
 
-	while ((rsize += read(sockfd, buf+offset, 512-offset)) > 0) {
+		}
+		
 		while (offset < (size_t)rsize) {
 			if (!(buf[offset++] == '\r' && buf[offset] == '\n')) 
 				continue; /* search for \r\n */
@@ -334,7 +383,13 @@ void handle_forever(char *buf) {
 			read_command(buf);
 			offset++;
 			if ((size_t)rsize == offset) {
-				/* only got one command, goto read */
+				/* only got one command,
+				 * either goto read
+				 * or reload if we have a pending reload */
+				if (pending_reload) {
+					reload();
+					pending_reload = false;
+				}
 				rsize = 0;
 				offset = 0;
 				break;
@@ -354,9 +409,6 @@ void handle_forever(char *buf) {
 		if (offset == 512) 
 			offset = 0;
 	}
-
-	if (rsize == -1)
-		perror("read");
 }
 
 void read_command(char *msg) {
@@ -453,7 +505,7 @@ void irc_command_join(char *prefix) {
 	mask++;
 
 	len = strlen(mask);
-	if (len > 128)
+	if (len > 512)
 		return; /* mask to long for us */
 
 	for (o=&opers; o; o=o->next) {
@@ -508,6 +560,13 @@ void irc_command_kick(char *params) {
 	if (strcmp(params, cfg.nick) == 0) {
 		irc_join();
 	}
+}
+
+void irc_register(void) {
+	fprintf(sockstream, "NICK %s\r\n", cfg.nick);
+	fprintf(sockstream, "USER H-Vanira localhost localhost "
+			":H-Vanira the Bot\r\n");
+	fflush(sockstream);
 }
 
 void irc_join(void) {
