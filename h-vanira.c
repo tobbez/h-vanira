@@ -414,7 +414,7 @@ void read_command(char *msg) {
 	char *cmd = msg;
 
 	/* For debugging: */
-	/* printf("%s\n", msg); */
+	printf("%s\n", msg);
 
 	/* strip prefix from cmd */
 	if (cmd[0] == ':') {
