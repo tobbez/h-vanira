@@ -355,15 +355,15 @@ bool irc_connect(char *hostname, char *port) {
 void handle_forever(char *buf) {
 	size_t offset = 0;
 	ssize_t rsize = 0;
+	ssize_t _rsize;
 
-	while ((rsize += read(sockfd, buf+offset, 512-offset))) {
-		if (rsize < 0) {
+	while ((_rsize = read(sockfd, buf+offset, 512-offset))) {
+		if (_rsize < 0) {
 			if (errno == EINTR) {
 				if (pending_reload && offset == 0) {
 					reload();
 					pending_reload = false;
 				}
-				rsize = 0;
 				continue;
 			} else {
 				perror("read");
@@ -374,6 +374,7 @@ void handle_forever(char *buf) {
 
 		}
 		
+		rsize += _rsize;
 		while (offset < (size_t)rsize) {
 			if (!(buf[offset++] == '\r' && buf[offset] == '\n')) 
 				continue; /* search for \r\n */
