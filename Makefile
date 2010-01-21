@@ -2,7 +2,7 @@
 .PHONY: clean
 
 all: version.h h-vanira.c
-	gcc -Wall -Wextra -ansi -pedantic -D_POSIX_SOURCE -Os h-vanira.c \
+	gcc -Wall -Wextra -ansi -pedantic -D_POSIX_C_SOURCE=1 -Os h-vanira.c \
 	    -o h-vanira
 
 clean:

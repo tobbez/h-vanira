@@ -1,6 +1,6 @@
 /*
- * Copyright © 2009, Sebastian Thorarensen <indigo176@blinkenshell.org>,
- *		     Torbjörn Lönnemark <tobbez@ryara.net>
+ * Copyright © 2009-2010 Sebastian Thorarensen <indigo176@blinkenshell.org>,
+ *			 Torbjörn Lönnemark <tobbez@ryara.net>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,24 +29,22 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include <unistd.h>
 #include <signal.h>
 #include <string.h>
-#include <error.h>
 #include <errno.h>
+#include <error.h>
 #include <netdb.h>
-#include <sys/stat.h>
-#include <sys/select.h>
-#include <sys/types.h> /* for compability with older systems */
+#include <unistd.h>
+#include <sys/time.h>
+#include <sys/types.h>
 #include <sys/socket.h>
-/*#include <netinet/in.h>*/
-/*#include <arpa/inet.h>*/
+#include <sys/stat.h>
 
-/* #define VERSION "H-Vanira (20091014) by InDigo176 and tobbez" */
 #include "version.h"
 
 #define RECONNECTION_DELAY 30
-#define QUIT_TIMEOUT 2
+#define READ_TIMEOUT 300
+#define QUIT_TIMEOUT 4
 
 
 void read_opers(void);
@@ -54,6 +52,7 @@ void install_signals(void);
 void handle_signal(int);
 void reload(void);
 bool irc_connect(char *, char *);
+void irc_cleanup(void);
 void handle_forever(char *);
 void read_command(char *);
 
@@ -65,6 +64,7 @@ void irc_command_privmsg(char *, char *);
 void irc_command_kick(char *);
 void irc_register(void);
 void irc_join(void);
+void irc_quit(char *);
 
 struct conf {
 	char master[512];
@@ -91,7 +91,8 @@ char *outbuf;
 int sockfd;
 FILE *sockstream;
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 	char *buf;
 
 	path = argv[0];
@@ -128,7 +129,8 @@ skip_connect:	handle_forever(buf);
 	return EXIT_SUCCESS;
 }
 
-void read_conf(struct conf *cfg) {
+void read_conf(struct conf *cfg)
+{
 	FILE *cfgf;
 	char buf[512]; 
 	char *val;
@@ -200,7 +202,8 @@ void read_conf(struct conf *cfg) {
 		perror("fclose");
 }
 
-void read_opers(void) {
+void read_opers(void)
+{
 	FILE *maskf;
 	struct oper *current = &opers;
 	char c;
@@ -225,7 +228,8 @@ void read_opers(void) {
 		current = current->next;
 
 		len = ftell(maskf);
-		fgets(current->mask, 512, maskf);
+		if (!fgets(current->mask, 512, maskf))
+			perror("fgets");
 		len = ftell(maskf) - len - 1;
 		current->mask[len] = '\0'; /* remove \n */
 	}
@@ -235,7 +239,8 @@ void read_opers(void) {
 
 }
 
-void install_signals(void) {
+void install_signals(void)
+{
 	int signals[] = {SIGHUP, SIGINT, SIGSEGV, SIGTERM, SIGUSR1};
 	size_t len = sizeof signals / sizeof (int);
 	struct sigaction action;
@@ -253,7 +258,8 @@ void install_signals(void) {
 	}
 }
 
-void handle_signal(int sig) {
+void handle_signal(int sig)
+{
 	char *quitmsg;
 	int exitval = EXIT_SUCCESS;
 
@@ -272,46 +278,37 @@ void handle_signal(int sig) {
 			quitmsg = "Caught termination signal";
 			break;
 		case SIGUSR1:
-			/* will reload when all pending IRC commands 
-			 * have been parsed */
+			/* 
+			 * will reload when all pending IRC commands 
+			 * have been parsed
+			 */
 			pending_reload = true;
 		default:
 			return;
 	}
 
-	if (sockstream) {
-		fd_set sockset;
-		struct timeval tv;
-
-		fprintf(sockstream, "QUIT :%s\r\n", quitmsg);
-		fflush(sockstream);
-
-		FD_ZERO(&sockset);
-		FD_SET(sockfd, &sockset);
-		tv.tv_sec = QUIT_TIMEOUT;
-		tv.tv_usec = 0;
-
-		select(sockfd+1, &sockset, NULL, NULL, &tv);
-	}
+	if (sockstream)
+		irc_quit(quitmsg);
 
 	exit(exitval);
 }
 
-void reload(void) {
-	char arg[8]; /* shouldn't overflow on an int */
+void reload(void)
+{
+	char arg[6];
 
-	if (sockfd > 32767) { /* but make sure it's max 16-bit anyway */
-		error(0, 0, "Integer overflow");
+	if (sockfd > 32767) { /* make sure it fits in our buffer */
+		error(0, 0, "16-bit integer overflow");
 		return;
 	}
 
 	sprintf(arg, "%i", sockfd);
-	if (execl(path, "h-vanira", arg, (char *)NULL) < 0) {
+	if (execl(path, "h-vanira", arg, (char *)NULL) < 0)
 		perror("execl");
-	}
 }
 
-bool irc_connect(char *hostname, char *port) {
+bool irc_connect(char *hostname, char *port)
+{
 	struct addrinfo hints;
 	struct addrinfo *ai;
 	int errcode;
@@ -352,13 +349,29 @@ bool irc_connect(char *hostname, char *port) {
 	return true;
 }
 
-void handle_forever(char *buf) {
+void irc_cleanup(void)
+{
+	fclose(sockstream);
+	close(sockfd);
+}
+
+void handle_forever(char *buf)
+{
+	fd_set sockset;
+	struct timeval tv;
+	int err;
+
 	size_t offset = 0;
 	ssize_t rsize = 0;
 	ssize_t _rsize;
 
-	while ((_rsize = read(sockfd, buf+offset, 512-offset))) {
-		if (_rsize < 0) {
+	FD_ZERO(&sockset);
+	FD_SET(sockfd, &sockset);
+	tv.tv_sec = READ_TIMEOUT;
+	tv.tv_usec = 0;
+
+	while ((err = select(sockfd+1, &sockset, NULL, NULL, &tv)) != 0) {
+		if (err < 0) {
 			if (errno == EINTR) {
 				if (pending_reload && offset == 0) {
 					reload();
@@ -366,12 +379,21 @@ void handle_forever(char *buf) {
 				}
 				continue;
 			} else {
-				perror("read");
-				fclose(sockstream);
-				close(sockfd);
+				perror("select");
+				irc_cleanup();
 				return; /* reconnect */
 			}
+		}
 
+		_rsize = read(sockfd, buf+offset, 512-offset);
+		switch (_rsize) {
+			case -1:
+				perror("read");
+			case 0:
+				irc_cleanup();
+				return; /* reconnect */
+			default:
+				break;
 		}
 		
 		rsize += _rsize;
@@ -383,9 +405,11 @@ void handle_forever(char *buf) {
 			read_command(buf);
 			offset++;
 			if ((size_t)rsize == offset) {
-				/* only got one command,
+				/*
+				 * only got one command,
 				 * either goto read
-				 * or reload if we have a pending reload */
+				 * or reload if we have a pending reload
+				 */
 				if (pending_reload) {
 					reload();
 					pending_reload = false;
@@ -395,23 +419,33 @@ void handle_forever(char *buf) {
 				break;
 			}
 
-			/* more commands on the buffer
+			/*
+			 * more commands on the buffer
 			 * move command to beginning of buffer and
-			 * continue search for \r\n */
+			 * continue search for \r\n 
+			 */
 			rsize -= offset;
 			memmove(buf, buf+offset, rsize);
 			offset = 0;
 			continue;
 		}
 
-		/* avoid infinite loop if we receive a message
-		 * which is too long */
+		/* 
+		 * avoid infinite loop if we receive a message
+		 * which is too long
+		 */
 		if (offset == 512) 
 			offset = 0;
 	}
+
+	/* select timed out */
+	error(0, 0, "No server activity for %i seconds", READ_TIMEOUT);
+	irc_quit("Nobody ever talks to me T_T");
+	irc_cleanup();
 }
 
-void read_command(char *msg) {
+void read_command(char *msg)
+{
 	char *cmd = msg;
 
 	/* For debugging: */
@@ -472,24 +506,27 @@ void read_command(char *msg) {
  * kind of strcmp, but also stops at space in s1
  * returns strlen + 1
  */
-int strscmp(const char *s1, const char *s2) {
+int strscmp(const char *s1, const char *s2)
+{
 	int i;
-	for (i=0; s1[i]!=' '&&s1[i]!='\0'&&s2[i]!='\0'; i++) {
+	for (i = 0; s1[i] != ' ' && s1[i] != '\0' && s2[i] != '\0'; i++) {
 		if (s1[i] != s2[i])
 			return -1;
 	}
 	return i + 1;
 }
 
-void irc_command_ping(char *params) {
+void irc_command_ping(char *params)
+{
 	fprintf(sockstream, "PONG %s\r\n", params);
-	 fflush(sockstream);
+	fflush(sockstream);
 }
 
 /*
  * ops users in opers list on join
  */
-void irc_command_join(char *prefix) {
+void irc_command_join(char *prefix)
+{
 	char *mask;
 	struct oper *o;
 	size_t len;
@@ -518,7 +555,8 @@ void irc_command_join(char *prefix) {
 	}
 }
 
-void irc_command_privmsg(char *prefix, char *params) {
+void irc_command_privmsg(char *prefix, char *params)
+{
 	char *msg;
 	char *n;
 
@@ -548,7 +586,8 @@ void irc_command_privmsg(char *prefix, char *params) {
 /*
  * rejoins on kick
  */
-void irc_command_kick(char *params) {
+void irc_command_kick(char *params)
+{
 	char *end;
 
 	params = strchr(params, ' ') + 1; /* jump to nickname */
@@ -562,14 +601,33 @@ void irc_command_kick(char *params) {
 	}
 }
 
-void irc_register(void) {
+void irc_register(void)
+{
 	fprintf(sockstream, "NICK %s\r\n", cfg.nick);
 	fprintf(sockstream, "USER H-Vanira localhost localhost "
 			":H-Vanira the Bot\r\n");
 	fflush(sockstream);
 }
 
-void irc_join(void) {
+void irc_join(void)
+{
 	fprintf(sockstream, "JOIN %s\r\n", cfg.channel);
 	fflush(sockstream);
+}
+
+void irc_quit(char *msg)
+{
+	fd_set sockset;
+	struct timeval tv;
+
+	fprintf(sockstream, "QUIT :%s\r\n", msg);
+	fflush(sockstream);
+
+	FD_ZERO(&sockset);
+	FD_SET(sockfd, &sockset);
+	tv.tv_sec = QUIT_TIMEOUT;
+	tv.tv_usec = 0;
+
+	/* wait until server has responded to our quit */
+	select(sockfd+1, &sockset, NULL, NULL, &tv);
 }
