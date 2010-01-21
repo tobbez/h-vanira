@@ -43,7 +43,7 @@
 #include "version.h"
 
 #define RECONNECTION_DELAY 30
-#define READ_TIMEOUT 300
+#define READ_TIMEOUT 600
 #define QUIT_TIMEOUT 4
 
 
