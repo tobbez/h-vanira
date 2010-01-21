@@ -371,6 +371,10 @@ void handle_forever(char *buf)
 	tv.tv_usec = 0;
 
 	while ((err = select(sockfd+1, &sockset, NULL, NULL, &tv)) != 0) {
+		/* on Linux timeout gets modified */
+		tv.tv_sec = READ_TIMEOUT;
+		tv.tv_usec = 0;
+
 		if (err < 0) {
 			if (errno == EINTR) {
 				if (pending_reload && offset == 0) {
