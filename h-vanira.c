@@ -26,6 +26,8 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "version.h"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -40,12 +42,11 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
-#include "version.h"
-
 #define RECONNECTION_DELAY 30
 #define READ_TIMEOUT 600
 #define QUIT_TIMEOUT 4
 
+#define FLAG_OP 1
 
 void read_opers(void);
 void install_signals(void);
@@ -57,10 +58,13 @@ void handle_forever(char *);
 void read_command(char *);
 
 int strscmp(const char *, const char *);
+struct oper *getoper(const char *, size_t);
 
 void irc_command_ping(char *);
 void irc_command_join(char *);
 void irc_command_privmsg(char *, char *);
+void irc_command_mode(char *);
+void irc_command_mode_o(char *, char);
 void irc_command_kick(char *);
 void irc_register(void);
 void irc_join(void);
@@ -78,6 +82,7 @@ void read_conf(struct conf *);
 
 struct oper {
 	char mask[512];
+	int flags;
 	struct oper *next;
 };
 
@@ -90,6 +95,8 @@ bool pending_reload = false;
 char *outbuf;
 int sockfd;
 FILE *sockstream;
+
+int self_flags = 0;
 
 int main(int argc, char *argv[])
 {
@@ -138,9 +145,9 @@ void read_conf(struct conf *cfg)
 	int lno;
 
 	cfgf = fopen("config", "r");
-	if(!cfgf) {
+	if (!cfgf) {
 		error(0, errno, "Couldn't read config file");
-		if(errno == ENOENT) {
+		if (errno == ENOENT) {
 			fprintf(stderr, "Creating config...\n");
 			cfgf = fopen("config", "w");
 			fputs("master user@host\n"
@@ -149,21 +156,21 @@ void read_conf(struct conf *cfg)
 			      "port 6667\n"
 			      "channel #channel\n",
 			      cfgf);
-			if(fclose(cfgf) == EOF)
+			if (fclose(cfgf) == EOF)
 				perror("fclose");
 		}
 		exit(3);
 	}
 
 	lno = 0;
-	while(fgets(buf, 512, cfgf)) { /* read lines */
+	while (fgets(buf, 512, cfgf)) { /* read lines */
 		lno++;
 
-		if(buf[strlen(buf) - 1] == '\n')
+		if (buf[strlen(buf) - 1] == '\n')
 			buf[strlen(buf) - 1] = '\0';
 
 		val = 0;
-		for(index = 0; index < strlen(buf); index++) { 
+		for (index = 0; index < strlen(buf); index++) { 
 			if(buf[index] == ' ') {
 				val = (char *)
 				      (buf + (index + 1) * sizeof(*buf));
@@ -172,33 +179,33 @@ void read_conf(struct conf *cfg)
 			}
 		}
 
-		if(val == 0)
+		if (val == 0)
 			error(4, 0, "Malformed config file on line %i", lno);
 
-		if(strcmp(buf, "server") == 0) {
+		if (strcmp(buf, "server") == 0) {
 			strcpy(cfg->server, val);
-		} else if(strcmp(buf, "port") == 0) {
-			if(strlen(val) > 7)
+		} else if (strcmp(buf, "port") == 0) {
+			if (strlen(val) > 7)
 				error(4, 0, "Malformed config file on line %i",
 				      lno);
 			strcpy(cfg->port, val);
-		} else if(strcmp(buf, "nick") == 0) {
-			if(strlen(val) > 127)
+		} else if (strcmp(buf, "nick") == 0) {
+			if (strlen(val) > 127)
 				error(4, 0, "Malformed config file on line %i",
 				      lno);
 			strcpy(cfg->nick, val);
-		} else if(strcmp(buf, "channel") == 0) {
+		} else if (strcmp(buf, "channel") == 0) {
 			if(strlen(val) > 127)
 				error(4, 0, "Malformed config file on line %i",
 				      lno);
 			strcpy(cfg->channel, val);
-		} else if(strcmp(buf, "master") == 0) {
+		} else if (strcmp(buf, "master") == 0) {
 			strcpy(cfg->master, val);
 		} else {
 			error(4, 0, "Malformed config file on line %i", lno);
 		}
 	}
-	if(fclose(cfgf) == EOF)
+	if (fclose(cfgf) == EOF)
 		perror("fclose");
 }
 
@@ -215,6 +222,8 @@ void read_opers(void)
 	}
 
 	strcpy(current->mask, cfg.master);
+	current->flags = 0;
+	current->next = NULL;
 
 	/* peek for EOF so that we don't allocate one struct too much */
 	while ((c=getc_unlocked(maskf)) != EOF) {
@@ -226,6 +235,8 @@ void read_opers(void)
 		if (!current->next)
 			error(EXIT_FAILURE, 0, "Cannot allocate memory");
 		current = current->next;
+		current->flags = 0;
+		current->next = NULL;
 
 		len = ftell(maskf);
 		if (!fgets(current->mask, 512, maskf))
@@ -250,7 +261,7 @@ void install_signals(void)
 	sigemptyset(&action.sa_mask);
 	action.sa_flags = 0;
 
-	for (i=0; i<len; i++) {
+	for (i = 0; i < len; i++) {
 		if (sigaction(signals[i], &action, NULL) < 0) {
 			perror("sigaction");
 			exit(EXIT_FAILURE);
@@ -520,6 +531,21 @@ int strscmp(const char *s1, const char *s2)
 	return i + 1;
 }
 
+/*
+ * get oper by hostmask or NULL if the mask doesn't belong to an oper
+ */
+struct oper *getoper(const char *mask, size_t n)
+{
+	struct oper *o;
+
+	for (o=&opers; o; o=o->next) {
+		if (memcmp(mask, o->mask, n) == 0)
+			return o;
+	}
+
+	return NULL;
+}
+
 void irc_command_ping(char *params)
 {
 	fprintf(sockstream, "PONG %s\r\n", params);
@@ -542,21 +568,19 @@ void irc_command_join(char *prefix)
 	if (!mask)
 		return;
 	mask[0] = '\0';
-
 	mask++;
 
 	len = strlen(mask);
 	if (len > 512)
 		return; /* mask to long for us */
 
-	for (o=&opers; o; o=o->next) {
-		if (memcmp(mask, o->mask, len) == 0) {
-			fprintf(sockstream, "MODE %s +o %s\r\n", cfg.channel,
-					prefix);
-			fflush(sockstream);
-			return;
-		}
-	}
+	o = getoper(mask, len);
+	if (o == NULL || !(o->flags & FLAG_OP))
+		return;
+
+	fprintf(sockstream, "MODE %s +o %s\r\n", cfg.channel, prefix);
+	fflush(sockstream);
+	return;
 }
 
 void irc_command_privmsg(char *prefix, char *params)
@@ -587,6 +611,54 @@ void irc_command_privmsg(char *prefix, char *params)
 	}
 }
 
+void irc_command_mode(char *params)
+{
+	char *modes;
+	char *n;
+	char *nicks[3];
+	int i;
+	int nickc;
+	char modifier;
+
+	modes = strchr(params, ' ');
+	if (!modes)
+		return;
+	modes++;
+
+	i = 0;
+	while ((n = strchr(modes, ' '))) {
+		if (i > 2)
+			return; /* more than three arguments is illegal */
+		n[0] = '\0';
+		nicks[i++] = ++n;
+	}
+	if (i < 1)
+		return; /* no nicks? */
+
+	nickc = i;
+	i = 0;
+
+	modifier = modes[0];
+	if (modifier != '-' || modifier != '+')
+		return; /* no initial modifier? */
+	while ((++modes)[0] != '\0' && i < nickc) {
+		switch (modes[0]) {
+			case '+':
+			case '-':
+				modifier = modes[0];
+				continue;
+			case 'o':
+				irc_command_mode_o(nicks[i++], modifier);
+				continue;
+		}
+	}
+}
+
+void irc_command_mode_o(char *nick, char mod)
+{
+	/* TODO sync opers */
+}
+
 /*
  * rejoins on kick
  */
@@ -594,10 +666,14 @@ void irc_command_kick(char *params)
 {
 	char *end;
 
-	params = strchr(params, ' ') + 1; /* jump to nickname */
+	params = strchr(params, ' '); /* jump to nickname */
 	if (!params)
 		return;
+	params++;
+
 	end = strchr(params, ' ');
+	if (!end)
+		return;
 	end[0] = '\0';
 
 	if (strcmp(params, cfg.nick) == 0) {
