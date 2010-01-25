@@ -575,7 +575,7 @@ void irc_command_join(char *prefix)
 		return; /* mask to long for us */
 
 	o = getoper(mask, len);
-	if (o == NULL || !(o->flags & FLAG_OP))
+	if (o == NULL || o->flags & FLAG_OP)
 		return;
 
 	fprintf(sockstream, "MODE %s +o %s\r\n", cfg.channel, prefix);
