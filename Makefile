@@ -6,7 +6,7 @@ all: version.h h-vanira.c
 	    -o h-vanira
 
 clean:
-	rm -f h-vanira
+	rm -f h-vanira version.h
 
 version.h: force
 	@echo "#ifndef VERSION_H_" >  version.h
