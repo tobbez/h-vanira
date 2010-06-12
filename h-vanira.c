@@ -19,7 +19,6 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdbool.h>
 #include <signal.h>
 #include <string.h>
 #include <errno.h>
@@ -41,7 +40,7 @@ void read_opers(void);
 void install_signals(void);
 void handle_signal(int);
 void reload(void);
-bool irc_connect(char *, char *);
+int irc_connect(char *, char *);
 void irc_cleanup(void);
 void handle_forever(char *);
 void read_command(char *);
@@ -79,7 +78,7 @@ struct conf cfg;
 struct oper opers;
 
 char *path;
-bool pending_reload = false;
+int pending_reload = 0;
 
 char *outbuf;
 int sockfd;
@@ -282,7 +281,7 @@ void handle_signal(int sig)
 			 * will reload when all pending IRC commands 
 			 * have been parsed
 			 */
-			pending_reload = true;
+			pending_reload = 1;
 		default:
 			return;
 	}
@@ -307,7 +306,7 @@ void reload(void)
 		perror("execl");
 }
 
-bool irc_connect(char *hostname, char *port)
+int irc_connect(char *hostname, char *port)
 {
 	struct addrinfo hints;
 	struct addrinfo *ai;
@@ -321,32 +320,32 @@ bool irc_connect(char *hostname, char *port)
 	errcode = getaddrinfo(hostname, port, &hints, &ai);
 	if (errcode < 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(errcode));
-		return false;
+		return 0;
 	}
 
 	sockfd = socket(ai->ai_family, SOCK_STREAM, 0);
 	if (sockfd < 0) {
 		perror("socket");
-		return false;
+		return 0;
 	}
 
 	if (connect(sockfd, ai->ai_addr, ai->ai_addrlen) == -1) {
 		perror("connect");
 		freeaddrinfo(ai);
-		return false;
+		return 0;
 	}
 
 	sockstream = fdopen(sockfd, "w");
 	if (!sockstream) {
 		perror("fdopen");
 		freeaddrinfo(ai);
-		return false;
+		return 0;
 	}
 
 	irc_register();
 
 	freeaddrinfo(ai);
-	return true;
+	return 1;
 }
 
 void irc_cleanup(void)
@@ -379,7 +378,7 @@ void handle_forever(char *buf)
 			if (errno == EINTR) {
 				if (pending_reload && offset == 0) {
 					reload();
-					pending_reload = false;
+					pending_reload = 0;
 				}
 				continue;
 			} else {
@@ -416,7 +415,7 @@ void handle_forever(char *buf)
 				 */
 				if (pending_reload) {
 					reload();
-					pending_reload = false;
+					pending_reload = 0;
 				}
 				rsize = 0;
 				offset = 0;
