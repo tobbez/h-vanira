@@ -1,0 +1,3 @@
+[submodule "libucfg"]
+	path = libucfg
+	url = http://github.com/tobbez/libucfg.git
