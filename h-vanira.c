@@ -467,59 +467,32 @@ void handle_forever(char *buf)
 void read_command(char *msg)
 {
 	char *cmd = msg;
+	int params;
 
-	/* For debugging: */
-	printf("%s\n", msg);
+	/* debug prints */
+	/* printf("%s\n", msg); */
 
 	/* strip prefix from cmd */
 	if (cmd[0] == ':') {
-		do {
+		do
 			cmd++;
-		} while (cmd[0] != ' ' && cmd[1] != '\0');
+		while (cmd[0] != ' ' && cmd[1] != '\0');
 		cmd[0] = '\0';
 		cmd++;
 	}
 
-	/* maybe optimized lookup */
-	switch (cmd[0]) {
-		int params;
+	if ((params = strscmp(cmd, "251")) > 0)
+		/* 251 means registered, after this we can join channels */
+		irc_join();
+	else if ((params = strscmp(cmd, "JOIN")) > 0)
+		irc_command_join(msg);
+	else if ((params = strscmp(cmd, "PING")) > 0)
+		irc_command_ping(cmd+params);
+	else if ((params = strscmp(cmd, "PRIVMSG")) > 0)
+		irc_command_privmsg(msg, cmd+params);
+	else if ((params = strscmp(cmd, "KICK")) > 0)
+		irc_command_kick(cmd+params);
 
-	case '2':
-		params = strscmp(cmd, "251");
-		if (params > 0) {
-			/* registered, we can now join channels */
-			irc_join();
-		}
-		return;
-
-	case 'J':
-		params = strscmp(cmd, "JOIN");
-		if (params > 0) {
-			irc_command_join(msg);
-		}
-		return;
-
-	case 'P':
-		params = strscmp(cmd, "PING");
-		if (params > 0) {
-			irc_command_ping(cmd+params);
-			return;
-		}
-
-		params = strscmp(cmd, "PRIVMSG");
-		if (params > 0) {
-			irc_command_privmsg(msg, cmd+params);
-		}
-		return;
-
-	case 'K':
-		params = strscmp(cmd, "KICK");
-		if (params > 0) {
-			irc_command_kick(cmd+params);
-		}
-		return;
-
-	}
 }
 
 /*
