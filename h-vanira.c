@@ -19,10 +19,10 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <signal.h>
 #include <string.h>
 #include <errno.h>
-#include <error.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <sys/time.h>
@@ -35,6 +35,8 @@
 #define QUIT_TIMEOUT 4
 
 #define FLAG_OP 1
+
+void error(int status, int errnum, const char *format, ...);
 
 void read_opers(void);
 void install_signals(void);
@@ -61,7 +63,7 @@ void irc_quit(char *);
 struct conf {
 	char master[512];
 	char nick[128];
-	char server[512]; /* max length of a host name is 256 chars */
+	char server[257]; /* max length of a host name is 256 chars */
 	char port[8];
 	char channel[128];
 };
@@ -95,7 +97,7 @@ int main(int argc, char *argv[])
 	read_conf(&cfg);
 	read_opers();
 
-	buf = malloc(512 * sizeof (char));
+	buf = malloc(512 * sizeof(char));
 	if (!buf)
 		error(EXIT_FAILURE, 0, "Cannot allocate memory");
 
@@ -103,15 +105,14 @@ int main(int argc, char *argv[])
 
 	if (argc > 1) {
 		sockfd = atoi(argv[1]);
-		if (sockfd < 1) { /* TODO add fail safe check */
+		if (sockfd < 1) /* TODO add fail safe check */
 			error(EXIT_FAILURE, 0, "Bad reload socket");
-		}
 		sockstream = fdopen(sockfd, "w");
-		if (!sockstream) {
-			perror("fdopen");
-		} else {
+		if (!sockstream)
+			error(0, errno, "fdopen");
+		else
 			goto skip_connect;
-		}
+		
 	}
 
 	for (;;) {
@@ -122,6 +123,25 @@ skip_connect:	handle_forever(buf);
 	}
 
 	return EXIT_SUCCESS;
+}
+
+void error(int status, int errnum, const char *format, ...)
+{
+	fprintf(stderr, "%s", path);
+	if (format) {
+		va_list ap;
+		va_start(ap, format);
+		fprintf(stderr, ": ");
+		vfprintf(stderr, format, ap);
+		va_end(ap);
+	}
+	if (errnum != 0)
+		fprintf(stderr, ": %s\n", strerror(errnum));
+	else
+		fprintf(stderr, "\n");
+
+	if (status != 0)
+		exit(status);
 }
 
 void read_conf(struct conf *cfg)
@@ -136,7 +156,7 @@ void read_conf(struct conf *cfg)
 	if (!cfgf) {
 		error(0, errno, "Couldn't read config file");
 		if (errno == ENOENT) {
-			fprintf(stderr, "Creating config...\n");
+			printf("Creating config...\n");
 			cfgf = fopen("config", "w");
 			fputs("master user@host\n"
 			      "nick botnick\n"
@@ -145,7 +165,7 @@ void read_conf(struct conf *cfg)
 			      "channel #channel\n",
 			      cfgf);
 			if (fclose(cfgf) == EOF)
-				perror("fclose");
+				error(0, errno, "fclose");
 		}
 		exit(3);
 	}
@@ -194,7 +214,7 @@ void read_conf(struct conf *cfg)
 		}
 	}
 	if (fclose(cfgf) == EOF)
-		perror("fclose");
+		error(0, errno, "fclose");
 }
 
 void read_opers(void)
@@ -214,12 +234,12 @@ void read_opers(void)
 	current->next = NULL;
 
 	/* peek for EOF so that we don't allocate one struct too much */
-	while ((c=getc_unlocked(maskf)) != EOF) {
+	while ((c=getc(maskf)) != EOF) {
 		int len;
 		
 		ungetc(c, maskf);
 
-		current->next = malloc(sizeof (struct oper));
+		current->next = malloc(sizeof(struct oper));
 		if (!current->next)
 			error(EXIT_FAILURE, 0, "Cannot allocate memory");
 		current = current->next;
@@ -228,20 +248,20 @@ void read_opers(void)
 
 		len = ftell(maskf);
 		if (!fgets(current->mask, 512, maskf))
-			perror("fgets");
+			error(0, errno, "fgets");
 		len = ftell(maskf) - len - 1;
 		current->mask[len] = '\0'; /* remove \n */
 	}
 
 	if (fclose(maskf) == EOF)
-		perror("fclose");
+		error(0, errno, "fclose");
 
 }
 
 void install_signals(void)
 {
 	int signals[] = {SIGHUP, SIGINT, SIGSEGV, SIGTERM, SIGUSR1};
-	size_t len = sizeof signals / sizeof (int);
+	size_t len = sizeof(signals) / sizeof(int);
 	struct sigaction action;
 	size_t i;
 
@@ -250,10 +270,8 @@ void install_signals(void)
 	action.sa_flags = 0;
 
 	for (i = 0; i < len; i++) {
-		if (sigaction(signals[i], &action, NULL) < 0) {
-			perror("sigaction");
-			exit(EXIT_FAILURE);
-		}
+		if (sigaction(signals[i], &action, NULL) < 0)
+			error(EXIT_FAILURE, errno, "sigaction");
 	}
 }
 
@@ -294,16 +312,15 @@ void handle_signal(int sig)
 
 void reload(void)
 {
-	char arg[6];
-
-	if (sockfd > 32767) { /* make sure it fits in our buffer */
-		error(0, 0, "16-bit integer overflow");
-		return;
-	}
+	/*
+	 * hack:
+	 * the buffer will always fit an integer if 16 bit or larger
+	 */
+	char arg[sizeof(int)*3];
 
 	sprintf(arg, "%i", sockfd);
 	if (execl(path, "h-vanira", arg, (char *)NULL) < 0)
-		perror("execl");
+		error(0, errno, "execl");
 }
 
 int irc_connect(char *hostname, char *port)
@@ -319,25 +336,25 @@ int irc_connect(char *hostname, char *port)
 
 	errcode = getaddrinfo(hostname, port, &hints, &ai);
 	if (errcode < 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(errcode));
+		error(0, 0, "getaddrinfo: %s", gai_strerror(errcode));
 		return 0;
 	}
 
 	sockfd = socket(ai->ai_family, SOCK_STREAM, 0);
 	if (sockfd < 0) {
-		perror("socket");
+		error(0, errno, "socket");
 		return 0;
 	}
 
 	if (connect(sockfd, ai->ai_addr, ai->ai_addrlen) == -1) {
-		perror("connect");
+		error(0, errno, "connect");
 		freeaddrinfo(ai);
 		return 0;
 	}
 
 	sockstream = fdopen(sockfd, "w");
 	if (!sockstream) {
-		perror("fdopen");
+		error(0, errno, "fdopen");
 		freeaddrinfo(ai);
 		return 0;
 	}
@@ -382,7 +399,7 @@ void handle_forever(char *buf)
 				}
 				continue;
 			} else {
-				perror("select");
+				error(0, errno, "select");
 				irc_cleanup();
 				return; /* reconnect */
 			}
@@ -391,7 +408,7 @@ void handle_forever(char *buf)
 		_rsize = read(sockfd, buf+offset, 512-offset);
 		switch (_rsize) {
 			case -1:
-				perror("read");
+				error(0, errno, "read");
 			case 0:
 				irc_cleanup();
 				return; /* reconnect */
