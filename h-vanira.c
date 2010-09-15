@@ -549,7 +549,7 @@ void irc_command_join(char *prefix)
 	mask++;
 
 	len = strlen(mask);
-	if (len > 512)
+	if (len > sizeof(o->mask))
 		return; /* mask to long for us */
 
 	o = getoper(mask, len);
