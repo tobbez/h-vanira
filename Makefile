@@ -3,7 +3,7 @@
 
 all: version.h h-vanira.c
 	gcc -Wall -Wextra -ansi -pedantic -D_POSIX_C_SOURCE=1 -Os h-vanira.c \
-	    -o h-vanira
+	    -Ilibucfg libucfg/ucfg.c -o h-vanira
 
 clean:
 	rm -f h-vanira version.h

@@ -16,6 +16,7 @@
  */
 
 #include "version.h"
+#include "ucfg.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -60,23 +61,13 @@ void irc_register(void);
 void irc_join(void);
 void irc_quit(char *);
 
-struct conf {
-	char master[512];
-	char nick[128];
-	char server[257]; /* max length of a host name is 256 chars */
-	char port[8];
-	char channel[128];
-};
-
-void read_conf(struct conf *);
-
 struct oper {
 	char mask[512];
 	int flags;
 	struct oper *next;
 };
 
-struct conf cfg;
+struct ucfg_node *conf;
 struct oper opers;
 
 char *path;
@@ -91,10 +82,27 @@ int self_flags = 0;
 int main(int argc, char *argv[])
 {
 	char *buf;
+	int err;
 
 	path = argv[0];
 
-	read_conf(&cfg);
+	if ((err = ucfg_read_file(&conf, "config")) != UCFG_OK) {
+		printf("%s\n", ucfg_strerror(err));
+		return 1;
+	}
+	
+	{
+		struct ucfg_node *tmp;
+		const char* reqvals[] = { "core:master", "core:nick", "core:server", "core:port", "core:channel" };
+		int i;
+		for (i = 0; i < 5; ++i) {
+			if ((err = ucfg_lookup(&tmp, conf, reqvals[i])) == UCFG_ERR_NODE_INEXISTENT) {
+				fprintf(stderr, "error: '%s' must be defined in config\n", reqvals[i]);
+				return 1;
+			}
+		}
+	}
+
 	read_opers();
 
 	buf = malloc(512 * sizeof(char));
@@ -116,7 +124,7 @@ int main(int argc, char *argv[])
 	}
 
 	for (;;) {
-		while (!irc_connect(cfg.server, cfg.port))
+		while (!irc_connect(ucfg_lookup_string(conf, "core:server"), ucfg_lookup_string(conf, "core:port")))
 			sleep(RECONNECTION_DELAY);
 skip_connect:	handle_forever(buf);
 		printf("Disconnected!\n");
@@ -143,80 +151,6 @@ void error(int status, int errnum, const char *format, ...)
 	if (status != 0)
 		exit(status);
 }
-
-void read_conf(struct conf *cfg)
-{
-	FILE *cfgf;
-	char buf[512]; 
-	char *val;
-	unsigned int index;
-	int lno;
-
-	cfgf = fopen("config", "r");
-	if (!cfgf) {
-		error(0, errno, "Couldn't read config file");
-		if (errno == ENOENT) {
-			printf("Creating config...\n");
-			cfgf = fopen("config", "w");
-			fputs("master user@host\n"
-			      "nick botnick\n"
-			      "server host.tld\n"
-			      "port 6667\n"
-			      "channel #channel\n",
-			      cfgf);
-			if (fclose(cfgf) == EOF)
-				error(0, errno, "fclose");
-		}
-		exit(3);
-	}
-
-	lno = 0;
-	while (fgets(buf, 512, cfgf)) { /* read lines */
-		lno++;
-
-		if (buf[strlen(buf) - 1] == '\n')
-			buf[strlen(buf) - 1] = '\0';
-
-		val = 0;
-		for (index = 0; index < strlen(buf); index++) { 
-			if(buf[index] == ' ') {
-				val = (char *)
-				      (buf + (index + 1) * sizeof(*buf));
-				buf[index] = '\0';
-				break;
-			}
-		}
-
-		if (val == 0)
-			error(4, 0, "Malformed config file on line %i", lno);
-
-		if (strcmp(buf, "server") == 0) {
-			strcpy(cfg->server, val);
-		} else if (strcmp(buf, "port") == 0) {
-			if (strlen(val) > 7)
-				error(4, 0, "Malformed config file on line %i",
-				      lno);
-			strcpy(cfg->port, val);
-		} else if (strcmp(buf, "nick") == 0) {
-			if (strlen(val) > 127)
-				error(4, 0, "Malformed config file on line %i",
-				      lno);
-			strcpy(cfg->nick, val);
-		} else if (strcmp(buf, "channel") == 0) {
-			if(strlen(val) > 127)
-				error(4, 0, "Malformed config file on line %i",
-				      lno);
-			strcpy(cfg->channel, val);
-		} else if (strcmp(buf, "master") == 0) {
-			strcpy(cfg->master, val);
-		} else {
-			error(4, 0, "Malformed config file on line %i", lno);
-		}
-	}
-	if (fclose(cfgf) == EOF)
-		error(0, errno, "fclose");
-}
-
 void read_opers(void)
 {
 	FILE *maskf;
@@ -229,7 +163,7 @@ void read_opers(void)
 		return;
 	}
 
-	strcpy(current->mask, cfg.master);
+	strcpy(current->mask, ucfg_lookup_string(conf, "core:master"));
 	current->flags = 0;
 	current->next = NULL;
 
@@ -556,7 +490,7 @@ void irc_command_join(char *prefix)
 	if (o == NULL || o->flags & FLAG_OP)
 		return;
 
-	fprintf(sockstream, "MODE %s +o %s\r\n", cfg.channel, prefix);
+	fprintf(sockstream, "MODE %s +o %s\r\n", ucfg_lookup_string(conf, "core:channel"), prefix);
 	fflush(sockstream);
 	return;
 }
@@ -579,7 +513,7 @@ void irc_command_privmsg(char *prefix, char *params)
 	msg[0] = '\0';
 	msg++;
 
-	if (strcmp(params, cfg.nick) != 0)
+	if (strcmp(params, ucfg_lookup_string(conf, "core:nick")) != 0)
 		return;
 
 	if (strcmp(msg, ":\001VERSION\001") == 0) {
@@ -654,14 +588,14 @@ void irc_command_kick(char *params)
 		return;
 	end[0] = '\0';
 
-	if (strcmp(params, cfg.nick) == 0) {
+	if (strcmp(params, ucfg_lookup_string(conf, "core:nick")) == 0) {
 		irc_join();
 	}
 }
 
 void irc_register(void)
 {
-	fprintf(sockstream, "NICK %s\r\n", cfg.nick);
+	fprintf(sockstream, "NICK %s\r\n", ucfg_lookup_string(conf, "core:nick"));
 	fprintf(sockstream, "USER H-Vanira localhost localhost "
 			":H-Vanira the Bot\r\n");
 	fflush(sockstream);
@@ -669,7 +603,7 @@ void irc_register(void)
 
 void irc_join(void)
 {
-	fprintf(sockstream, "JOIN %s\r\n", cfg.channel);
+	fprintf(sockstream, "JOIN %s\r\n", ucfg_lookup_string(conf, "core:channel"));
 	fflush(sockstream);
 }
 
