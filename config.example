@@ -1,0 +1,7 @@
+core: {
+  master: "user@host.tld";
+  nick: "bot_nick";
+  server: "irc.server.tld";
+  port: "6667";
+  channel: "#your_channel";
+}
