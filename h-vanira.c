@@ -204,13 +204,7 @@ void read_opers(void)
 
 void install_signals(void)
 {
-	int signals[] = {
-		SIGHUP,
-		SIGINT,
-		SIGSEGV,
-		SIGTERM,
-		SIGUSR1
-	};
+	int signals[] = {SIGHUP, SIGINT, SIGSEGV, SIGTERM, SIGUSR1};
 	size_t len = sizeof(signals) / sizeof(int);
 	struct sigaction action;
 	size_t i;
