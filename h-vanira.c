@@ -93,11 +93,19 @@ int main(int argc, char *argv[])
 	
 	{
 		struct ucfg_node *tmp;
-		const char* reqvals[] = { "core:master", "core:nick", "core:server", "core:port", "core:channel" };
+		const char* reqvals[] = {
+			"core:master",
+			"core:nick",
+			"core:server",
+			"core:port",
+			"core:channel"
+		};
 		int i;
 		for (i = 0; i < 5; ++i) {
-			if ((err = ucfg_lookup(&tmp, conf, reqvals[i])) == UCFG_ERR_NODE_INEXISTENT) {
-				fprintf(stderr, "error: '%s' must be defined in config\n", reqvals[i]);
+			if ((err = ucfg_lookup(&tmp, conf, reqvals[i])) ==
+					UCFG_ERR_NODE_INEXISTENT) {
+				fprintf(stderr, "error: '%s' must be defined "
+						"in config\n", reqvals[i]);
 				return 1;
 			}
 		}
@@ -105,7 +113,7 @@ int main(int argc, char *argv[])
 
 	read_opers();
 
-	buf = malloc(512 * sizeof(char));
+	buf = malloc(512);
 	if (!buf)
 		error(EXIT_FAILURE, 0, "Cannot allocate memory");
 
@@ -124,7 +132,8 @@ int main(int argc, char *argv[])
 	}
 
 	for (;;) {
-		while (!irc_connect(ucfg_lookup_string(conf, "core:server"), ucfg_lookup_string(conf, "core:port")))
+		while (!irc_connect(ucfg_lookup_string(conf, "core:server"),
+					ucfg_lookup_string(conf, "core:port")))
 			sleep(RECONNECTION_DELAY);
 skip_connect:	handle_forever(buf);
 		printf("Disconnected!\n");
@@ -194,7 +203,13 @@ void read_opers(void)
 
 void install_signals(void)
 {
-	int signals[] = {SIGHUP, SIGINT, SIGSEGV, SIGTERM, SIGUSR1};
+	int signals[] = {
+		SIGHUP,
+		SIGINT,
+		SIGSEGV,
+		SIGTERM,
+		SIGUSR1
+	};
 	size_t len = sizeof(signals) / sizeof(int);
 	struct sigaction action;
 	size_t i;
@@ -203,10 +218,9 @@ void install_signals(void)
 	sigemptyset(&action.sa_mask);
 	action.sa_flags = 0;
 
-	for (i = 0; i < len; i++) {
+	for (i = 0; i < len; i++)
 		if (sigaction(signals[i], &action, NULL) < 0)
 			error(EXIT_FAILURE, errno, "sigaction");
-	}
 }
 
 void handle_signal(int sig)
@@ -490,7 +504,8 @@ void irc_command_join(char *prefix)
 	if (o == NULL || o->flags & FLAG_OP)
 		return;
 
-	fprintf(sockstream, "MODE %s +o %s\r\n", ucfg_lookup_string(conf, "core:channel"), prefix);
+	fprintf(sockstream, "MODE %s +o %s\r\n",
+			ucfg_lookup_string(conf, "core:channel"), prefix);
 	fflush(sockstream);
 	return;
 }
@@ -595,7 +610,8 @@ void irc_command_kick(char *params)
 
 void irc_register(void)
 {
-	fprintf(sockstream, "NICK %s\r\n", ucfg_lookup_string(conf, "core:nick"));
+	fprintf(sockstream, "NICK %s\r\n",
+			ucfg_lookup_string(conf, "core:nick"));
 	fprintf(sockstream, "USER H-Vanira localhost localhost "
 			":H-Vanira the Bot\r\n");
 	fflush(sockstream);
@@ -603,7 +619,8 @@ void irc_register(void)
 
 void irc_join(void)
 {
-	fprintf(sockstream, "JOIN %s\r\n", ucfg_lookup_string(conf, "core:channel"));
+	fprintf(sockstream, "JOIN %s\r\n",
+			ucfg_lookup_string(conf, "core:channel"));
 	fflush(sockstream);
 }
 
