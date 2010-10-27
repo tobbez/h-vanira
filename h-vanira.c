@@ -160,6 +160,7 @@ void error(int status, int errnum, const char *format, ...)
 	if (status != 0)
 		exit(status);
 }
+
 void read_opers(void)
 {
 	FILE *maskf;
