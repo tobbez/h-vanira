@@ -127,7 +127,7 @@ int main(int argc, char *argv[])
 		if (!sockstream)
 			error(0, errno, "fdopen");
 		else
-			goto skip_connect;
+			handle_forever(buf); /* resume handling */
 		
 	}
 
@@ -135,8 +135,7 @@ int main(int argc, char *argv[])
 		while (!irc_connect(ucfg_lookup_string(conf, "core:server"),
 					ucfg_lookup_string(conf, "core:port")))
 			sleep(RECONNECTION_DELAY);
-skip_connect:	handle_forever(buf);
-		printf("Disconnected!\n");
+		handle_forever(buf);
 	}
 
 	return EXIT_SUCCESS;
@@ -403,8 +402,9 @@ void handle_forever(char *buf)
 
 	/* select timed out */
 	error(0, 0, "No server activity for %i seconds", READ_TIMEOUT);
-	irc_quit("Nobody ever talks to me T_T");
+	irc_quit("Server inactive");
 	irc_cleanup();
+	printf("Disconnected!\n");
 }
 
 void read_command(char *msg)
