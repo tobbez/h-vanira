@@ -39,7 +39,6 @@
 
 void error(int status, int errnum, const char *format, ...);
 
-void read_opers(void);
 void install_signals(void);
 void handle_signal(int);
 void reload(void);
@@ -49,7 +48,6 @@ void handle_forever(char *);
 void read_command(char *);
 
 int strscmp(const char *, const char *);
-struct oper *getoper(const char *, size_t);
 
 void irc_command_ping(char *);
 void irc_command_join(char *);
@@ -61,14 +59,7 @@ void irc_register(void);
 void irc_join(void);
 void irc_quit(char *);
 
-struct oper {
-	char mask[512];
-	int flags;
-	struct oper *next;
-};
-
 struct ucfg_node *conf;
-struct oper opers;
 
 char *path;
 int pending_reload = 0;
@@ -110,8 +101,6 @@ int main(int argc, char *argv[])
 			}
 		}
 	}
-
-	read_opers();
 
 	buf = malloc(512);
 	if (!buf)
@@ -158,47 +147,6 @@ void error(int status, int errnum, const char *format, ...)
 
 	if (status != 0)
 		exit(status);
-}
-
-void read_opers(void)
-{
-	FILE *maskf;
-	struct oper *current = &opers;
-	char c;
-
-	maskf = fopen("opers", "r");
-	if (!maskf) {
-		error(0, errno, "Cannot read opers file");
-		return;
-	}
-
-	strcpy(current->mask, ucfg_lookup_string(conf, "core:master"));
-	current->flags = 0;
-	current->next = NULL;
-
-	/* peek for EOF so that we don't allocate one struct too much */
-	while ((c=getc(maskf)) != EOF) {
-		int len;
-		
-		ungetc(c, maskf);
-
-		current->next = malloc(sizeof(struct oper));
-		if (!current->next)
-			error(EXIT_FAILURE, 0, "Cannot allocate memory");
-		current = current->next;
-		current->flags = 0;
-		current->next = NULL;
-
-		len = ftell(maskf);
-		if (!fgets(current->mask, 512, maskf))
-			error(0, errno, "fgets");
-		len = ftell(maskf) - len - 1;
-		current->mask[len] = '\0'; /* remove \n */
-	}
-
-	if (fclose(maskf) == EOF)
-		error(0, errno, "fclose");
-
 }
 
 void install_signals(void)
@@ -452,21 +400,6 @@ int strscmp(const char *s1, const char *s2)
 	return i + 1;
 }
 
-/*
- * get oper by hostmask or NULL if the mask doesn't belong to an oper
- */
-struct oper *getoper(const char *mask, size_t n)
-{
-	struct oper *o;
-
-	for (o=&opers; o; o=o->next) {
-		if (memcmp(mask, o->mask, n) == 0)
-			return o;
-	}
-
-	return NULL;
-}
-
 void irc_command_ping(char *params)
 {
 	fprintf(sockstream, "PONG %s\r\n", params);
@@ -479,8 +412,7 @@ void irc_command_ping(char *params)
 void irc_command_join(char *prefix)
 {
 	char *mask;
-	struct oper *o;
-	size_t len;
+	struct ucfg_node *ops;
 
 	/* skip colon */
 	prefix++;
@@ -491,17 +423,20 @@ void irc_command_join(char *prefix)
 	mask[0] = '\0';
 	mask++;
 
-	len = strlen(mask);
-	if (len > sizeof(o->mask))
-		return; /* mask to long for us */
-
-	o = getoper(mask, len);
-	if (o == NULL || o->flags & FLAG_OP)
+	if (ucfg_lookup(&ops, conf, "plugins:op:") == UCFG_ERR_NODE_INEXISTENT)
 		return;
 
-	fprintf(sockstream, "MODE %s +o %s\r\n",
-			ucfg_lookup_string(conf, "core:channel"), prefix);
-	fflush(sockstream);
+	do {
+		if (strcmp(ops->value, mask) == 0) {
+			fprintf(sockstream,
+				"MODE %s +o %s\r\n",
+				ucfg_lookup_string(conf, "core:channel"),
+				prefix);
+			fflush(sockstream);
+			break;
+		}
+        } while ((ops = ops->next) != NULL);
+
 	return;
 }
 
