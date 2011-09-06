@@ -236,6 +236,32 @@ int irc_connect(char *hostname, char *port)
 		return 0;
 	}
 
+	{
+		struct ucfg_node *tmp;
+		if (ucfg_lookup(&tmp, conf, "core:bind") == UCFG_OK) {
+			struct addrinfo *source_ai;
+			errcode = getaddrinfo(tmp->value,
+					NULL, 
+					&hints, 
+					&source_ai);
+			if (errcode < 0) {
+				error(0, 
+					0, 
+					"getaddrinfo: %s", 
+					gai_strerror(errcode));
+			}
+
+			errcode = bind(sockfd,
+					source_ai->ai_addr,
+					source_ai->ai_addrlen);
+			freeaddrinfo(source_ai);
+			if (errcode == -1) {
+				error(0, errno, "bind");
+				return 0;
+			}
+		}
+	}
+
 	if (connect(sockfd, ai->ai_addr, ai->ai_addrlen) == -1) {
 		error(0, errno, "connect");
 		freeaddrinfo(ai);

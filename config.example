@@ -4,4 +4,5 @@ core: {
   server: "irc.server.tld";
   port: "6667";
   channel: "#your_channel";
+  bind: "10.0.0.2";
 }
