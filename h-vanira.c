@@ -333,7 +333,7 @@ void handle_forever(char *buf)
 		}
 		
 		rsize += _rsize;
-		while (offset < (size_t)rsize) {
+		while (offset < (size_t)rsize - 1) {
 			if (!(buf[offset++] == '\r' && buf[offset] == '\n')) 
 				continue; /* search for \r\n */
 
@@ -370,8 +370,10 @@ void handle_forever(char *buf)
 		 * avoid infinite loop if we receive a message
 		 * which is too long
 		 */
-		if (offset == 512) 
+		if (offset == 512) {
+			rsize = 0;
 			offset = 0;
+		}
 	}
 
 	/* select timed out */
