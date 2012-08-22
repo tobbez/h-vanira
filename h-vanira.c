@@ -1,5 +1,5 @@
 /*
- * Copyright © 2009-2010 Sebastian Thorarensen <indigo176@blinkenshell.org>,
+ * Copyright © 2009-2010 Sebastian Thorarensen <sebth@lysator.liu.se>,
  *			 Torbjörn Lönnemark <tobbez@ryara.net>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
