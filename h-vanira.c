@@ -43,6 +43,7 @@ void install_signals(void);
 void handle_signal(int);
 void reload(void);
 int irc_connect(char *, char *);
+int bindsock(void);
 void irc_cleanup(void);
 void handle_forever(char *);
 void read_command(char *);
@@ -217,68 +218,88 @@ int irc_connect(char *hostname, char *port)
 {
 	struct addrinfo hints;
 	struct addrinfo *ai;
+	struct addrinfo *aip;
 	int errcode;
 
-	hints.ai_flags = 0;
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = 0;
+	hints.ai_flags = 0;
 
 	errcode = getaddrinfo(hostname, port, &hints, &ai);
-	if (errcode < 0) {
+	if (errcode != 0) {
 		error(0, 0, "getaddrinfo: %s", gai_strerror(errcode));
 		return 0;
 	}
 
-	sockfd = socket(ai->ai_family, SOCK_STREAM, 0);
-	if (sockfd < 0) {
-		error(0, errno, "socket");
-		return 0;
-	}
-
-	{
-		struct ucfg_node *tmp;
-		if (ucfg_lookup(&tmp, conf, "core:bind") == UCFG_OK) {
-			struct addrinfo *source_ai;
-			errcode = getaddrinfo(tmp->value,
-					NULL, 
-					&hints, 
-					&source_ai);
-			if (errcode < 0) {
-				error(0, 
-					0, 
-					"getaddrinfo: %s", 
-					gai_strerror(errcode));
-			}
-
-			errcode = bind(sockfd,
-					source_ai->ai_addr,
-					source_ai->ai_addrlen);
-			freeaddrinfo(source_ai);
-			if (errcode == -1) {
-				error(0, errno, "bind");
-				return 0;
-			}
+	for (aip = ai; aip; aip = aip->ai_next) {
+		sockfd = socket(ai->ai_family, ai->ai_socktype,
+				ai->ai_protocol);
+		if (sockfd == -1) {
+			/* Failure; retry. */
+			error(0, errno, "socket");
+			continue;
 		}
-	}
 
-	if (connect(sockfd, ai->ai_addr, ai->ai_addrlen) == -1) {
+		if (!bindsock()) {
+			/* The bind failed, cancel. */
+			close(sockfd);
+			freeaddrinfo(ai);
+			return 0;
+		}
+
+		if (connect(sockfd, ai->ai_addr, ai->ai_addrlen) != -1)
+			break; /* Success. */
+
+		/* Failure; retry. */
 		error(0, errno, "connect");
-		freeaddrinfo(ai);
-		return 0;
+		close(sockfd);
 	}
+	freeaddrinfo(ai);
+	if (!aip)
+		/*
+		 * This means that we hit the end of the list,
+		 * no connection succeeded.
+		 */
+		 return 0;
 
 	sockstream = fdopen(sockfd, "w");
 	if (!sockstream) {
 		error(0, errno, "fdopen");
-		freeaddrinfo(ai);
+		close(sockfd);
 		return 0;
 	}
 
 	irc_register();
-
-	freeaddrinfo(ai);
 	return 1;
+}
+
+int bindsock(void)
+{
+	struct ucfg_node *node;
+	struct addrinfo *ai;
+	struct addrinfo *aip;
+	int errcode;
+
+	/* TODO: Move this call to ucfg_lookup out of the connect loop. */
+	if (ucfg_lookup(&node, conf, "core:bind") != UCFG_OK)
+		return 1;
+
+	errcode = getaddrinfo(node->value, NULL, NULL, &ai);
+	if (errcode != 0) {
+		error(0, 0, "getaddrinfo: %s", gai_strerror(errcode));
+		return 0;
+	}
+
+	for (aip = ai; aip; aip = aip->ai_next) {
+		if (bind(sockfd, ai->ai_addr, ai->ai_addrlen) != -1)
+			break; /* Success. */
+		/* Failure; retry. */
+		error(0, errno, "bind");
+	}
+	freeaddrinfo(ai);
+	
+	return aip != NULL; /* aip will be NULL if no bind succeeded.*/
 }
 
 void irc_cleanup(void)
