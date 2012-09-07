@@ -2,8 +2,8 @@
 .PHONY: clean
 
 all: version.h h-vanira.c
-	gcc -Wall -Wextra -ansi -pedantic -D_POSIX_C_SOURCE=1 -Os h-vanira.c \
-	    -Ilibucfg libucfg/ucfg.c -o h-vanira
+	$(CC) $(CFLAGS) $(CPPFLAGS) h-vanira.c -Ilibucfg libucfg/ucfg.c \
+		-o h-vanira
 
 clean:
 	rm -f h-vanira version.h

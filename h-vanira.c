@@ -15,6 +15,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _POSIX_C_SOURCE 1
+
 #include "version.h"
 #include "ucfg.h"
 
