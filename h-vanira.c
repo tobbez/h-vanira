@@ -223,10 +223,9 @@ int irc_connect(char *hostname, char *port)
 	struct addrinfo *aip;
 	int errcode;
 
+	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_protocol = 0;
-	hints.ai_flags = 0;
 
 	errcode = getaddrinfo(hostname, port, &hints, &ai);
 	if (errcode != 0) {
