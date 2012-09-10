@@ -604,9 +604,9 @@ void irc_register(void)
 
 	pwdsbuf = malloc(pwdsbuf_size);
 
-	if (getpwuid_r(geteuid(), &pwd, pwdsbuf, pwdsbuf_size, &result) || 
-			result == NULL) {
-		error(0, 0, "Could not determine current username");
+	if ((getpwret = getpwuid_r(geteuid(), &pwd, pwdsbuf, pwdsbuf_size,
+					&result)) || result == NULL) {
+		error(0, getpwret, "Could not determine current username");
 		snprintf(username, 16, "%s", "unknown");
 	} else {
 		snprintf(username, 16, "%s", result->pw_name);
