@@ -32,6 +32,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <pwd.h>
 
 #define RECONNECTION_DELAY 30
 #define READ_TIMEOUT 600
@@ -590,10 +591,33 @@ void irc_command_kick(char *params)
 
 void irc_register(void)
 {
+	struct passwd pwd, *result;
+	char *pwdsbuf;
+	size_t pwdsbuf_size;
+	int getpwret;
+	char username[16];
+
+	pwdsbuf_size = sysconf(_SC_GETPW_R_SIZE_MAX);
+	if (pwdsbuf_size == -1) {
+		pwdsbuf_size = 8192;
+	}
+
+	pwdsbuf = malloc(pwdsbuf_size);
+
+	if (getpwuid_r(geteuid(), &pwd, pwdsbuf, pwdsbuf_size, &result) || 
+			result == NULL) {
+		error(0, 0, "Could not determine current username");
+		snprintf(username, 16, "%s", "unknown");
+	} else {
+		snprintf(username, 16, "%s", result->pw_name);
+	}
+
+	free(pwdsbuf);
+
 	fprintf(sockstream, "NICK %s\r\n",
 			ucfg_lookup_string(conf, "core:nick"));
-	fprintf(sockstream, "USER H-Vanira localhost localhost "
-			":H-Vanira the Bot\r\n");
+	fprintf(sockstream, "USER %s localhost localhost "
+			":H-Vanira the Bot\r\n", username);
 	fflush(sockstream);
 }
 
