@@ -219,12 +219,11 @@ void reload(void)
 
 int irc_connect(char *hostname, char *port)
 {
-	struct addrinfo hints;
+	struct addrinfo hints = {};
 	struct addrinfo *ai;
 	struct addrinfo *aip;
 	int errcode;
 
-	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
