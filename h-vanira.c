@@ -429,7 +429,7 @@ void read_command(char *msg)
 
 void irc_command_ping(char *params[])
 {
-	if (params[0])
+	if (!params[0])
 		return;
 	fprintf(sockstream, "PONG %s\r\n", params[0]);
 	fflush(sockstream);
