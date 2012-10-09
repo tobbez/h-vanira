@@ -38,8 +38,6 @@
 #define READ_TIMEOUT 600
 #define QUIT_TIMEOUT 4
 
-#define FLAG_OP 1
-
 void error(int status, int errnum, const char *format, ...);
 
 void install_signals(void);
@@ -51,14 +49,10 @@ void irc_cleanup(void);
 void handle_forever(char *);
 void read_command(char *);
 
-int strscmp(const char *, const char *);
-
-void irc_command_ping(char *);
+void irc_command_ping(char **);
 void irc_command_join(char *);
-void irc_command_privmsg(char *, char *);
-void irc_command_mode(char *);
-void irc_command_mode_o(char *, char);
-void irc_command_kick(char *);
+void irc_command_privmsg(char *, char **);
+void irc_command_kick(char **);
 void irc_register(void);
 void irc_join(void);
 void irc_quit(char *);
@@ -407,52 +401,37 @@ void handle_forever(char *buf)
 
 void read_command(char *msg)
 {
-	char *cmd = msg;
-	int params;
+	char *cmd;
+	char *params[15];
+	char *saveptr;
+	unsigned i;
 
-	/* debug prints */
-	/* printf("%s\n", msg); */
+	if (!(cmd = strtok_r(msg, " ", &saveptr)))
+		return;
+	/* Strip prefix. */
+	if (cmd[0] == ':')
+		cmd = strtok_r(NULL, " ", &saveptr);
+	for (i = 0; i < sizeof(params) / sizeof(*params); i++)
+		params[i] = strtok_r(NULL, " ", &saveptr);
 
-	/* strip prefix from cmd */
-	if (cmd[0] == ':') {
-		do
-			cmd++;
-		while (cmd[0] != ' ' && cmd[1] != '\0');
-		cmd[0] = '\0';
-		cmd++;
-	}
-
-	if ((params = strscmp(cmd, "251")) > 0)
+	if (strcmp(cmd, "251") == 0)
 		/* 251 means registered, after this we can join channels */
 		irc_join();
-	else if ((params = strscmp(cmd, "JOIN")) > 0)
+	else if (strcmp(cmd, "JOIN") == 0)
 		irc_command_join(msg);
-	else if ((params = strscmp(cmd, "PING")) > 0)
-		irc_command_ping(cmd+params);
-	else if ((params = strscmp(cmd, "PRIVMSG")) > 0)
-		irc_command_privmsg(msg, cmd+params);
-	else if ((params = strscmp(cmd, "KICK")) > 0)
-		irc_command_kick(cmd+params);
-
+	else if (strcmp(cmd, "PING") == 0)
+		irc_command_ping(params);
+	else if (strcmp(cmd, "PRIVMSG") == 0)
+		irc_command_privmsg(msg, params);
+	else if (strcmp(cmd, "KICK") == 0)
+		irc_command_kick(params);
 }
 
-/*
- * kind of strcmp, but also stops at space in s1
- * returns strlen + 1
- */
-int strscmp(const char *s1, const char *s2)
+void irc_command_ping(char *params[])
 {
-	int i;
-	for (i = 0; s1[i] != ' ' && s1[i] != '\0' && s2[i] != '\0'; i++) {
-		if (s1[i] != s2[i])
-			return -1;
-	}
-	return i + 1;
-}
-
-void irc_command_ping(char *params)
-{
-	fprintf(sockstream, "PONG %s\r\n", params);
+	if (params[0])
+		return;
+	fprintf(sockstream, "PONG %s\r\n", params[0]);
 	fflush(sockstream);
 }
 
@@ -486,14 +465,14 @@ void irc_command_join(char *prefix)
 			break;
 		}
         } while ((ops = ops->next) != NULL);
-
-	return;
 }
 
-void irc_command_privmsg(char *prefix, char *params)
+void irc_command_privmsg(char *prefix, char *params[])
 {
-	char *msg;
 	char *n;
+
+	if (!(params[0] && params[1]))
+		return;
 
 	/* make nick string */
 	prefix++;
@@ -502,90 +481,25 @@ void irc_command_privmsg(char *prefix, char *params)
 		return;
 	n[0] = '\0';
 
-	msg = strchr(params, ' ');
-	if (!msg)
-		return;
-	msg[0] = '\0';
-	msg++;
-
-	if (strcmp(params, ucfg_lookup_string(conf, "core:nick")) != 0)
+	if (strcmp(params[0], ucfg_lookup_string(conf, "core:nick")) != 0)
 		return;
 
-	if (strcmp(msg, ":\001VERSION\001") == 0) {
+	if (strcmp(params[1], ":\001VERSION\001") == 0) {
 		fprintf(sockstream, "NOTICE %s :\001VERSION %s\001\r\n",
 				prefix, VERSION);
 		fflush(sockstream);
 	}
 }
 
-void irc_command_mode(char *params)
-{
-	char *modes;
-	char *n;
-	char *nicks[3];
-	int i;
-	int nickc;
-	char modifier;
-
-	modes = strchr(params, ' ');
-	if (!modes)
-		return;
-	modes++;
-
-	i = 0;
-	while ((n = strchr(modes, ' '))) {
-		if (i > 2)
-			return; /* more than three arguments is illegal */
-		n[0] = '\0';
-		nicks[i++] = ++n;
-	}
-	if (i < 1)
-		return; /* no nicks? */
-
-	nickc = i;
-	i = 0;
-
-	modifier = modes[0];
-	if (modifier != '-' || modifier != '+')
-		return; /* no initial modifier? */
-	while ((++modes)[0] != '\0' && i < nickc) {
-		switch (modes[0]) {
-			case '+':
-			case '-':
-				modifier = modes[0];
-				continue;
-			case 'o':
-				irc_command_mode_o(nicks[i++], modifier);
-				continue;
-		}
-	}
-}
-
-void irc_command_mode_o(char *nick, char mod)
-{
-	/* TODO sync opers */
-}
-
 /*
  * rejoins on kick
  */
-void irc_command_kick(char *params)
+void irc_command_kick(char *params[])
 {
-	char *end;
-
-	params = strchr(params, ' '); /* jump to nickname */
-	if (!params)
+	if (!params[1])
 		return;
-	params++;
-
-	end = strchr(params, ' ');
-	if (!end)
-		return;
-	end[0] = '\0';
-
-	if (strcmp(params, ucfg_lookup_string(conf, "core:nick")) == 0) {
+	if (strcmp(params[1], ucfg_lookup_string(conf, "core:nick")) == 0)
 		irc_join();
-	}
 }
 
 void irc_register(void)
